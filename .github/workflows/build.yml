@@ -1,0 +1,78 @@
+name: Build SOF kernel and run tests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare
+        run: |
+          sudo su -c 'echo "deb http://security.ubuntu.com/ubuntu focal-security main universe" > /etc/apt/sources.list.d/ubuntu-focal-sources.list'
+          sudo apt-get update
+          sudo apt-get install --fix-broken -qy build-essential \
+                                  debhelper \
+                                  git \
+                                  autoconf \
+                                  flex \
+                                  bison \
+                                  texinfo \
+                                  help2man \
+                                  gawk \
+                                  libelf-dev \
+                                  libtool-bin \
+                                  libncurses5 \
+                                  libncurses-dev \
+                                  libssl-dev \
+                                  libgtk-3-dev \
+                                  tree \
+                                  ninja-build \
+                                  gettext \
+                                  libasound2-dev \
+                                  cmake \
+                                  libfftw3-dev \
+                                  libfftw3-doc \
+                                  alsa-tools
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout kconfig
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          repository: thesofproject/kconfig
+          ref: master
+          path: kconfig
+
+      - name: Checkout linux kernel
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          repository: thesofproject/linux
+          ref: 'topic/sof-dev'
+          path: linux
+
+      - name: Build kernel
+        working-directory: linux
+        run: |
+          cp /boot/config-$(uname -r)* .config
+          sed -i '/make localmodconfig/d' ../kconfig/kconfig-distro-sof-update.sh
+          ../kconfig/kconfig-distro-sof-update.sh
+          ./scripts/config --disable SYSTEM_TRUSTED_KEYS
+          ./scripts/config --disable SYSTEM_REVOCATION_KEYS          
+
+          make -j$(nproc) bindeb-pkg LOCALVERSION=-${{ github.sha }}
+
+      - name: Build SOF
+        run: |
+          make -j$(nproc) -C installer/
